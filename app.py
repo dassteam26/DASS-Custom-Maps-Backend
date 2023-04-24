@@ -64,21 +64,28 @@ def delete_map():
         # if map_doc["creator_id"] != user_id:
         #     return jsonify({"error": "not_creator"}), 403
 
+        
+
         creator_ref = users_ref.document(map_doc["creator_id"])
-        if creator_ref:
-            creator_doc = creator_ref.get()
+        creator_doc = creator_ref.get()
+        if creator_doc.exists:
             creator_doc = creator_doc.to_dict()
             if map_id in creator_doc["maps"]:
                 creator_doc["maps"].remove(map_id)
             creator_ref.update(creator_doc)
 
+
         users_snap = users_ref.get()
         all_users = [doc.to_dict() for doc in users_snap]
 
-        for user in all_users:
+        for user, user_ref in zip(all_users, users_snap):
             if map_id in user["saved_maps"]:
-                user_ref_new = users_ref.document(user["id"])
+                user_ref_new = users_ref.document(user_ref.id)
                 user["saved_maps"].remove(map_id)
+                user_ref_new.update(user)
+                print(user)
+
+                
 
         map_ref.delete()
 
@@ -503,3 +510,8 @@ def navigate():
         return jsonify({"success": True, "path": result[1], "dist": result[0]}), 200
     except Exception as e:
         return f"An error occured: {e}", 500
+
+
+port = int(os.environ.get("PORT", 8080))
+if __name__ == "__main__":
+    app.run(threaded=True, host="0.0.0.0", port=port)
