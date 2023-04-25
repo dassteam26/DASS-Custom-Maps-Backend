@@ -108,7 +108,7 @@ def admin():
         user_doc = user_ref.get()
         if not user_doc.exists:
             return jsonify({"error": "user_not_found"}), 404
-        
+
         user_doc = user_doc.to_dict()
         user_doc["is_admin"] = True
         user_ref.update(user_doc)
@@ -306,6 +306,18 @@ def get_saved():
             if map_doc.exists:
                 map_doc = map_doc.to_dict()
                 map_doc["id"] = str(map_ref.id)
+                bucket = storage.bucket()
+                blob = bucket.blob(str(map_ref.id) + ".jpg")
+
+                url = blob.generate_signed_url(
+                    version="v4",
+                    # This URL is valid for 15 minutes
+                    expiration=datetime.timedelta(minutes=6 * 24 * 60),
+                    # Allow GET requests using this URL.
+                    method="GET",
+                )
+                map_doc["image"] = url
+                print("url for " + str(map_doc["name"]) + ": " + str(map_doc["image"]))
                 map_details.append(map_doc)
 
         return jsonify({"success": True, "map_data": map_details}), 200
