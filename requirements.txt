@@ -1,4 +1,5 @@
 firebase_admin
 Flask
 Flask_Cors
+Pillow
 Gunicorn
