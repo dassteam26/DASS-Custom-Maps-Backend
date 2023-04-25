@@ -8,6 +8,8 @@ import functions
 from flask_cors import CORS
 import os
 import io
+from PIL import Image
+import datetime
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -64,8 +66,6 @@ def delete_map():
         # if map_doc["creator_id"] != user_id:
         #     return jsonify({"error": "not_creator"}), 403
 
-        
-
         creator_ref = users_ref.document(map_doc["creator_id"])
         creator_doc = creator_ref.get()
         if creator_doc.exists:
@@ -73,7 +73,6 @@ def delete_map():
             if map_id in creator_doc["maps"]:
                 creator_doc["maps"].remove(map_id)
             creator_ref.update(creator_doc)
-
 
         users_snap = users_ref.get()
         all_users = [doc.to_dict() for doc in users_snap]
@@ -85,8 +84,6 @@ def delete_map():
                 user_ref_new.update(user)
                 print(user)
 
-                
-
         map_ref.delete()
 
         return jsonify({"success": True}), 200
@@ -95,32 +92,29 @@ def delete_map():
         return f"An error occured: {e}", 500
 
 
-@app.route("/make-admin", methods=["GET"])
-def make_admin():
+@app.route("/admin", methods=["GET"])
+def admin():
     """
     route to make a user an admin
     the following format is expected for the header of the GET request
     {
-        username: <String>,
+        user_id: <String>,
     }
-    username is the name of the user who is to be made an admin
+    user_id is the id of the user who is to be made an admin
     """
     try:
-        username = request.headers.get("username")
-        query = users_ref.where("is_admin", "==", username)
-        matching_docs = query.get()
-        if len(matching_docs) == 0:
-            return jsonify({"error": "user_not_found"}), 400
-
-        user_id = str(matching_docs[0].id)
+        user_id = request.headers.get("user_id")
         user_ref = users_ref.document(user_id)
         user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({"error": "user_not_found"}), 404
+        
         user_doc = user_doc.to_dict()
         user_doc["is_admin"] = True
         user_ref.update(user_doc)
 
     except Exception as e:
-        return f"An error occured: {e}", 500
+        return f"An error occured: {e}", 200
 
 
 @app.route("/edit-map", methods=["PATCH"])
@@ -187,7 +181,7 @@ def save_map():
         user_doc = user_doc.to_dict()
         if map_id in user_doc["saved_maps"]:
             return jsonify({"success": True}), 200
-        
+
         user_doc["saved_maps"].append(map_id)
         user_ref.update(user_doc)
 
@@ -211,6 +205,13 @@ def upload_image():
 
         image_path = map_id + ".jpg"
         image_file.save(image_path)
+
+        im = Image.open(image_path)
+        width, height = im.size
+        new_width = 200
+        new_height = int(new_width / width * height)
+        im = im.resize((new_width, new_height))
+        im.save(image_path)
 
         bucket = storage.bucket()
         blob = bucket.blob(image_path)
@@ -240,7 +241,12 @@ def create_user():
     try:
         user = request.json
         args = list(user.keys())
-        if "username" not in args or "password" not in args or "firstname" not in args or "lastname" not in args:
+        if (
+            "username" not in args
+            or "password" not in args
+            or "firstname" not in args
+            or "lastname" not in args
+        ):
             return jsonify({"error": "incomplete_form"}), 400
 
         user["maps"] = []
@@ -252,7 +258,7 @@ def create_user():
     except Exception as e:
         print(e)
         return f"An error occurred: {e}", 500
-    
+
 
 @app.route("/unsave", methods=["GET"])
 def unsave():
@@ -262,7 +268,7 @@ def unsave():
 
         if not map_id or not user_id:
             return jsonify({"error": "incomplete_form"}), 400
-        
+
         user_ref = users_ref.document(user_id)
         user_doc = user_ref.get()
         if not user_doc.exists:
@@ -273,10 +279,11 @@ def unsave():
         user_doc["saved_maps"].remove(map_id)
         user_ref.update(user_doc)
         return jsonify({"success": True}), 200
-    
+
     except Exception as e:
         return f"An error occured: {e}", 500
-    
+
+
 @app.route("/get-saved", methods=["GET"])
 def get_saved():
     try:
@@ -284,12 +291,12 @@ def get_saved():
 
         if not user_id:
             return jsonify({"error": "incomplete_form"}), 400
-        
+
         user_ref = users_ref.document(user_id)
         user_doc = user_ref.get()
         if not user_doc.exists:
             return jsonify({"error": "user_not_found"}), 404
-        
+
         user_doc = user_doc.to_dict()
         map_details = []
 
@@ -300,7 +307,7 @@ def get_saved():
                 map_doc = map_doc.to_dict()
                 map_doc["id"] = str(map_ref.id)
                 map_details.append(map_doc)
-        
+
         return jsonify({"success": True, "map_data": map_details}), 200
 
     except Exception as e:
@@ -358,6 +365,17 @@ def list_maps():
         # adding the id field to the map object
         for map, id in zip(all_maps, ids):
             map["id"] = id
+            bucket = storage.bucket()
+            blob = bucket.blob(str(id) + ".jpg")
+
+            url = blob.generate_signed_url(
+                version="v4",
+                # This URL is valid for 15 minutes
+                expiration=datetime.timedelta(minutes=6 * 24 * 60),
+                # Allow GET requests using this URL.
+                method="GET",
+            )
+            map["image"] = url
 
         # returning all the map objects
         return jsonify({"all_maps": all_maps, "success": True}), 200
